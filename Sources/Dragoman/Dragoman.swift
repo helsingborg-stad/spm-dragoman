@@ -20,6 +20,7 @@ public extension View {
 public enum DragomanError : Error {
     case disabled
     case noTranslationService
+    case unableToConvertStringsToData
 }
 public class Dragoman: ObservableObject {
     public struct TranslationTable: TextTransaltionTable {
@@ -40,8 +41,11 @@ public class Dragoman: ObservableObject {
     public typealias Key = String
     
     private let manager = FileManager.default
-    private let bundlePath: URL
-    private var baseBundle: Bundle
+    private var baseBundle: Bundle {
+        didSet {
+            UserDefaults.standard.set(baseBundle.bundleURL.lastPathComponent, forKey: "DragomanCurrentBundleName")
+        }
+    }
     private var appBundle: Bundle
     private var tableName: String
     public var translationService: TextTranslationService?
@@ -66,14 +70,15 @@ public class Dragoman: ObservableObject {
     public let failed: AnyPublisher<Error, Never>
     public let cleaned: AnyPublisher<Void, Never>
     
-    public init(name: String = "DynamicLanguageBundle.bundle", tableName: String = "Localizable", translationService: TextTranslationService? = nil, locale:Locale, supportedLanguages:[LanguageKey]) {
+    public init(tableName: String = "Localizable", translationService: TextTranslationService? = nil, locale:Locale, supportedLanguages:[LanguageKey]) {
         self.locale = locale
         self.supportedLanguages = supportedLanguages
         self.tableName = tableName
-        let documents = URL(fileURLWithPath: NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first!)
-        bundlePath = documents.appendingPathComponent(name, isDirectory: true)
-        Self.createFoldersAndFiles(using: manager, bundlePath: bundlePath, tableName: tableName, languages: supportedLanguages)
-        baseBundle = Bundle(url: bundlePath) ?? Bundle.main
+        if let name = UserDefaults.standard.string(forKey: "DragomanCurrentBundleName"),let b = Self.getBundle(for: name) {
+            baseBundle = b
+        } else {
+            baseBundle = Self.createBundle(tableName: tableName, languages: supportedLanguages)
+        }
         appBundle = Self.appBundle(for: locale)
         bundle = Self.languageBundle(bundle: baseBundle, for: locale)
         self.translationService = translationService
@@ -81,7 +86,19 @@ public class Dragoman: ObservableObject {
         self.failed = failedSubject.eraseToAnyPublisher()
         self.cleaned = cleanedSubject.eraseToAnyPublisher()
     }
-    static func createFoldersAndFiles(using manager:FileManager, bundlePath:URL, tableName:String, languages:[LanguageKey]) {
+    static func getBundle(for name:String) -> Bundle? {
+        let documents = URL(fileURLWithPath: NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first!)
+        let url = documents.appendingPathComponent(name, isDirectory: true)
+        return Bundle(path: url.path)
+    }
+    static func createBundle(tableName:String, languages:[LanguageKey]) -> Bundle {
+        let documents = URL(fileURLWithPath: NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first!)
+        let bundlePath = documents.appendingPathComponent(UUID().uuidString + ".bundle", isDirectory: true)
+        Self.createFoldersAndFiles(bundlePath: bundlePath, tableName: tableName, languages: languages)
+        return Bundle(url: bundlePath)!
+    }
+    static func createFoldersAndFiles(bundlePath:URL, tableName:String, languages:[LanguageKey]) {
+        let manager = FileManager.default
         do {
             if manager.fileExists(atPath: bundlePath.path) == false {
                 try manager.createDirectory(at: bundlePath, withIntermediateDirectories: true, attributes: [FileAttributeKey.protectionKey: FileProtectionType.complete])
@@ -105,18 +122,12 @@ public class Dragoman: ObservableObject {
         if let b = bundleByLanguageCode(bundle: Bundle.main, for: locale) {
             return b
         }
-//        if let b = bundleByIdentifier(bundle:Bundle.main, for: locale) {
-//            return b
-//        }
         return Bundle.main
     }
     static private func languageBundle(bundle:Bundle, for locale:Locale) -> Bundle {
         if let b = bundleByLanguageCode(bundle: bundle, for: locale) {
             return b
         }
-//        if let b = bundleByIdentifier(bundle:bundle, for: locale) {
-//            return b
-//        }
         return bundle
     }
     static private func bundleByIdentifier(bundle:Bundle, for locale:Locale) -> Bundle? {
@@ -141,10 +152,12 @@ public class Dragoman: ObservableObject {
         return languageBundle
     }
     public func clean() {
+        clean(bundle:baseBundle)
+    }
+    private func clean(bundle:Bundle) {
         do {
-            if manager.fileExists(atPath: bundlePath.path) {
-                try manager.removeItem(at: bundlePath)
-                Self.createFoldersAndFiles(using: manager, bundlePath: bundlePath, tableName: tableName, languages: supportedLanguages)
+            if manager.fileExists(atPath: bundle.bundlePath) {
+                try manager.removeItem(at: bundle.bundleURL)
             }
             cleanedSubject.send()
         } catch {
@@ -236,27 +249,34 @@ public class Dragoman: ObservableObject {
             return
         }
         do {
+            let old = baseBundle
+            let new = Self.createBundle(tableName: tableName, languages: supportedLanguages)
             for language in translations.db {
                 let lang = language.key
-                let langPath = bundlePath.appendingPathComponent("\(lang).lproj", isDirectory: true)
+                let langPath = new.bundleURL.appendingPathComponent("\(lang).lproj", isDirectory: true)
                 if manager.fileExists(atPath: langPath.path) == false {
                     try manager.createDirectory(at: langPath, withIntermediateDirectories: true, attributes: [:])
                 }
                 let sentences = language.value
                 let res = sentences.reduce("", { $0 + "\"\($1.key)\" = \"\($1.value)\";\n" })
                 let filePath = langPath.appendingPathComponent("\(tableName).strings")
-                let data = res.data(using: .utf8)
-                manager.createFile(atPath: filePath.path, contents: data, attributes: [:])
+                guard let data = res.data(using: .utf8) else {
+                    throw DragomanError.unableToConvertStringsToData
+                }
+                try data.write(to: filePath)
             }
+            baseBundle = new
+            updateBundles()
+            clean(bundle: old)
             changedSubject.send()
             valueSubject.send(Date())
-            updateBundles()
         } catch {
+            debugPrint(error)
             failedSubject.send(error)
         }
     }
     private func updateBundles() {
-        self.bundle = Self.languageBundle(bundle: baseBundle, for: locale)
-        self.appBundle = Self.appBundle(for: locale)
+        bundle = Self.languageBundle(bundle: baseBundle, for: locale)
+        appBundle = Self.appBundle(for: locale)
     }
 }
