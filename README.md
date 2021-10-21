@@ -30,7 +30,7 @@ class MyState : ObservableObject {
     init() {
         let locale = Locale(identifier: "sv-SE")
         self.locale = locale
-        translator:MyTranslatorService
+        self.translator = MyTranslatorService()
         dragoman = Dragoman(
             translationService: translator,
             language: locale.languageCode ?? "sv",
