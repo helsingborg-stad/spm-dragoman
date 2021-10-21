@@ -8,29 +8,14 @@
 import SwiftUI
 import Combine
 
-private struct DragomanBundleKey: EnvironmentKey {
-    static let defaultValue: Bundle = .main
-}
-
-public extension EnvironmentValues {
-    var dragomanBundle: Bundle {
-        get { self[DragomanBundleKey.self] }
-        set { self[DragomanBundleKey.self] = newValue }
-    }
-}
-
-public extension View {
-    func dragomenBundle(_ value: Bundle) -> some View {
-        environment(\.dragomanBundle, value)
-    }
-}
+/// Automatic Translated Text view, used together with dragoman
 public struct ATText: View {
-    @Environment(\.dragomanBundle) var bundle
+    @EnvironmentObject var dragoman: Dragoman
     var text: LocalizedStringKey
     public init(_ text:LocalizedStringKey) {
         self.text = text
     }
     public var body: some View {
-        Text(text, bundle: bundle).autoUpdate()
+        Text(text, bundle: dragoman.bundle)
     }
 }
