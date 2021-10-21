@@ -65,12 +65,11 @@ class TestTextTranslator : TextTranslationService {
         return subj.eraseToAnyPublisher()
     }
 }
-
+let translator = TestTextTranslator()
 final class DragomanTests: XCTestCase {
     func testDragoman() {
         let expectation = XCTestExpectation(description: "testDragoman")
-        let dragoman = Dragoman(language: "se", supportedLanguages: ["se","en"])
-        dragoman.translationService = TestTextTranslator()
+        let dragoman = Dragoman(translationService: translator, language: "se", supportedLanguages: ["se","en"])
         dragoman.clean()
         dragoman.translate([firstTest], from: "sv", to: ["en"]).sink { compl in
             if case let .failure(error) = compl {
@@ -99,8 +98,7 @@ final class DragomanTests: XCTestCase {
     }
     func testCurrentLanguage() {
         let expectation = XCTestExpectation(description: "testDragoman")
-        let dragoman = Dragoman(language: "se", supportedLanguages: ["se","en"])
-        dragoman.translationService = TestTextTranslator()
+        let dragoman = Dragoman(translationService: translator, language: "se", supportedLanguages: ["se","en"])
         dragoman.clean()
         dragoman.translate([firstTest], from: "sv", to: ["en"]).sink { compl in
             if case let .failure(error) = compl {
@@ -117,8 +115,7 @@ final class DragomanTests: XCTestCase {
     }
     func testRemove() {
         let expectation = XCTestExpectation(description: "testDragoman")
-        let dragoman = Dragoman(language: "se", supportedLanguages: ["se","en"])
-        dragoman.translationService = TestTextTranslator()
+        let dragoman = Dragoman(translationService: translator, language: "se", supportedLanguages: ["se","en"])
         dragoman.clean()
         dragoman.language = "en"
         dragoman.translate([firstTest,secondTest], from: "sv", to: ["en"]).sink { compl in
