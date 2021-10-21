@@ -35,6 +35,20 @@ public class Dragoman: ObservableObject {
                 }
             }
         }
+        mutating func remove(strings:[String]) {
+            var db = db
+            for (lang,dict) in db {
+                var dict = dict
+                for s in strings {
+                    guard let index = dict.index(forKey: s) else {
+                        continue
+                    }
+                    dict.remove(at: index)
+                }
+                db[lang] = dict
+            }
+            self.db = db
+        }
     }
     public typealias LanguageKey = String
     public typealias Value = String
@@ -60,7 +74,7 @@ public class Dragoman: ObservableObject {
     
     @Published public var disabled: Bool = false
     @Published public private(set) var bundle: Bundle = Bundle.main
-    @Published public var locale:Locale {
+    @Published public var language:LanguageKey {
         didSet {
             updateBundles()
         }
@@ -70,8 +84,8 @@ public class Dragoman: ObservableObject {
     public let failed: AnyPublisher<Error, Never>
     public let cleaned: AnyPublisher<Void, Never>
     
-    public init(tableName: String = "Localizable", translationService: TextTranslationService? = nil, locale:Locale, supportedLanguages:[LanguageKey]) {
-        self.locale = locale
+    public init(tableName: String = "Localizable", translationService: TextTranslationService? = nil, language:LanguageKey, supportedLanguages:[LanguageKey]) {
+        self.language = language
         self.supportedLanguages = supportedLanguages
         self.tableName = tableName
         if let name = UserDefaults.standard.string(forKey: "DragomanCurrentBundleName"),let b = Self.getBundle(for: name) {
@@ -79,8 +93,8 @@ public class Dragoman: ObservableObject {
         } else {
             baseBundle = Self.createBundle(tableName: tableName, languages: supportedLanguages)
         }
-        appBundle = Self.appBundle(for: locale)
-        bundle = Self.languageBundle(bundle: baseBundle, for: locale)
+        appBundle = Self.appBundle(for: language)
+        bundle = Self.languageBundle(bundle: baseBundle, for: language)
         self.translationService = translationService
         self.changed = changedSubject.eraseToAnyPublisher()
         self.failed = failedSubject.eraseToAnyPublisher()
@@ -118,32 +132,20 @@ public class Dragoman: ObservableObject {
             print(error)
         }
     }
-    static private func appBundle(for locale:Locale) -> Bundle {
-        if let b = bundleByLanguageCode(bundle: Bundle.main, for: locale) {
+    static private func appBundle(for language:LanguageKey) -> Bundle {
+        if let b = bundleByLanguageCode(bundle: Bundle.main, for: language) {
             return b
         }
         return Bundle.main
     }
-    static private func languageBundle(bundle:Bundle, for locale:Locale) -> Bundle {
-        if let b = bundleByLanguageCode(bundle: bundle, for: locale) {
+    static private func languageBundle(bundle:Bundle, for language:LanguageKey) -> Bundle {
+        if let b = bundleByLanguageCode(bundle: bundle, for: language) {
             return b
         }
         return bundle
     }
-    static private func bundleByIdentifier(bundle:Bundle, for locale:Locale) -> Bundle? {
-        guard let path = bundle.path(forResource: locale.identifier, ofType: "lproj") else {
-            return nil
-        }
-        guard let languageBundle = Bundle(path: path) else {
-            return nil
-        }
-        return languageBundle
-    }
-    static private func bundleByLanguageCode(bundle:Bundle, for locale:Locale) -> Bundle? {
-        guard let languageCode = locale.languageCode else {
-            return nil
-        }
-        guard let path = bundle.path(forResource: languageCode, ofType: "lproj") else {
+    static private func bundleByLanguageCode(bundle:Bundle, for language:LanguageKey) -> Bundle? {
+        guard let path = bundle.path(forResource: language, ofType: "lproj") else {
             return nil
         }
         guard let languageBundle = Bundle(path: path) else {
@@ -163,6 +165,11 @@ public class Dragoman: ObservableObject {
         } catch {
             failedSubject.send(error)
         }
+    }
+    public func remove(keys:[String]) {
+        var table = translations(in: supportedLanguages)
+        table.remove(strings: keys)
+        write(table)
     }
     public func translate(_ texts: [String], from: LanguageKey, to: [LanguageKey]) -> AnyPublisher<Void,Error> {
         if disabled {
@@ -223,26 +230,21 @@ public class Dragoman: ObservableObject {
         return str
     }
     public func string(forKey key:String, in language:LanguageKey) -> String {
-        if language == self.locale.languageCode {
+        if language == self.language {
             return string(forKey: key)
         }
         let error = "## error no translation ##"
-        let str = Self.appBundle(for: Locale(identifier: language)).localizedString(forKey: key, value: error, table: nil)
+        let str = Self.appBundle(for: language).localizedString(forKey: key, value: error, table: nil)
         if str == error {
-            return Self.languageBundle(bundle: baseBundle, for: Locale(identifier: language)).localizedString(forKey: key, value: nil, table: tableName)
+            return Self.languageBundle(bundle: baseBundle, for: language).localizedString(forKey: key, value: nil, table: tableName)
         }
         return str
     }
     public func string(forKey key:String, with locale:Locale) -> String {
-        if locale.languageCode == self.locale.languageCode {
-            return string(forKey: key)
+        guard let languageCode = locale.languageCode, supportedLanguages.contains(languageCode) else {
+            return key
         }
-        let error = "## error no translation ##"
-        let str = Self.appBundle(for: locale).localizedString(forKey: key, value: error, table: nil)
-        if str == error {
-            return Self.languageBundle(bundle: baseBundle, for: locale).localizedString(forKey: key, value: nil, table: tableName)
-        }
-        return str
+        return string(forKey: key, in: languageCode)
     }
     public func write(_ translations: TranslationTable) {
         if disabled {
@@ -276,7 +278,7 @@ public class Dragoman: ObservableObject {
         }
     }
     private func updateBundles() {
-        bundle = Self.languageBundle(bundle: baseBundle, for: locale)
-        appBundle = Self.appBundle(for: locale)
+        bundle = Self.languageBundle(bundle: baseBundle, for: language)
+        appBundle = Self.appBundle(for: language)
     }
 }

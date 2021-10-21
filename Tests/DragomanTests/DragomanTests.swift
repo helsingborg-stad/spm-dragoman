@@ -6,11 +6,11 @@ import TextTranslator
 
 var cancellables = Set<AnyCancellable>()
 
-let firstTest = "test string 3"
-let firstTestTranslated = "test string 3 has been translated"
+let firstTest = "test string 1"
+let firstTestTranslated = "test string 1 has been translated"
 
-let secondTest = "test string 4"
-let secondTestTranslated = "test string 4 has been translated"
+let secondTest = "test string 2"
+let secondTestTranslated = "test string 2 has been translated"
 
 class TestTextTranslator : TextTranslationService {
     var translationDict = [String:String]()
@@ -20,7 +20,7 @@ class TestTextTranslator : TextTranslationService {
     }
     func translate(_ texts: [TranslationKey : String], from: LanguageKey, to: [LanguageKey], storeIn table: TextTransaltionTable) -> FinishedPublisher {
         let subj = FinishedSubject()
-        DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + 1) {
+        DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + 0.1) {
             var table = table
             for (key,_) in texts {
                 for l in to {
@@ -41,7 +41,7 @@ class TestTextTranslator : TextTranslationService {
     
     func translate(_ texts: [String], from: LanguageKey, to: [LanguageKey], storeIn table: TextTransaltionTable) -> FinishedPublisher {
         let subj = FinishedSubject()
-        DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + 1) {
+        DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + 0.1) {
             var table = table
             for key in texts {
                 for l in to {
@@ -69,7 +69,7 @@ class TestTextTranslator : TextTranslationService {
 final class DragomanTests: XCTestCase {
     func testDragoman() {
         let expectation = XCTestExpectation(description: "testDragoman")
-        let dragoman = Dragoman(locale: Locale(identifier: "se-SV"), supportedLanguages: ["se","en"])
+        let dragoman = Dragoman(language: "se", supportedLanguages: ["se","en"])
         dragoman.translationService = TestTextTranslator()
         dragoman.clean()
         dragoman.translate([firstTest], from: "sv", to: ["en"]).sink { compl in
@@ -79,7 +79,7 @@ final class DragomanTests: XCTestCase {
             }
         } receiveValue: {
             XCTAssert(dragoman.string(forKey: firstTest, in: "en") == firstTestTranslated)
-            dragoman.locale = Locale(identifier: "en-US")
+            dragoman.language = "en"
             dragoman.translate([secondTest], from: "sv", to: ["en"]).sink { compl in
                 if case let .failure(error) = compl {
                     debugPrint(error)
@@ -87,15 +87,53 @@ final class DragomanTests: XCTestCase {
                 }
             } receiveValue: {
                 XCTAssert(dragoman.string(forKey: secondTest, in: "en") == secondTestTranslated)
+                
+                let dragoman2 = Dragoman(language: "se", supportedLanguages: ["se","en"])
+                XCTAssert(dragoman2.string(forKey: firstTest, in: "en") == firstTestTranslated)
+                XCTAssert(dragoman2.string(forKey: secondTest, in: "en") == secondTestTranslated)
+                
                 expectation.fulfill()
             }.store(in: &cancellables)
         }.store(in: &cancellables)
-        wait(for: [expectation], timeout: 20)
+        wait(for: [expectation], timeout: 5)
     }
-    func testDragoman2() {
-        let dragoman = Dragoman(locale: Locale(identifier: "se-SV"), supportedLanguages: ["se","en"])
+    func testCurrentLanguage() {
+        let expectation = XCTestExpectation(description: "testDragoman")
+        let dragoman = Dragoman(language: "se", supportedLanguages: ["se","en"])
         dragoman.translationService = TestTextTranslator()
-        XCTAssert(dragoman.string(forKey: firstTest, in: "en") == firstTestTranslated)
-        XCTAssert(dragoman.string(forKey: secondTest, in: "en") == secondTestTranslated)
+        dragoman.clean()
+        dragoman.translate([firstTest], from: "sv", to: ["en"]).sink { compl in
+            if case let .failure(error) = compl {
+                debugPrint(error)
+                XCTFail(error.localizedDescription)
+            }
+        } receiveValue: {
+            XCTAssert(dragoman.string(forKey: firstTest) == firstTest)
+            dragoman.language = "en"
+            XCTAssert(dragoman.string(forKey: firstTest) == firstTestTranslated)
+            expectation.fulfill()
+        }.store(in: &cancellables)
+        wait(for: [expectation], timeout: 5)
+    }
+    func testRemove() {
+        let expectation = XCTestExpectation(description: "testDragoman")
+        let dragoman = Dragoman(language: "se", supportedLanguages: ["se","en"])
+        dragoman.translationService = TestTextTranslator()
+        dragoman.clean()
+        dragoman.language = "en"
+        dragoman.translate([firstTest,secondTest], from: "sv", to: ["en"]).sink { compl in
+            if case let .failure(error) = compl {
+                debugPrint(error)
+                XCTFail(error.localizedDescription)
+            }
+        } receiveValue: {
+            XCTAssert(dragoman.string(forKey: firstTest) == firstTestTranslated)
+            XCTAssert(dragoman.string(forKey: secondTest) == secondTestTranslated)
+            dragoman.remove(keys: [firstTest])
+            XCTAssert(dragoman.string(forKey: firstTest) == firstTest)
+            XCTAssert(dragoman.string(forKey: secondTest) == secondTestTranslated)
+            expectation.fulfill()
+        }.store(in: &cancellables)
+        wait(for: [expectation], timeout: 5)
     }
 }
