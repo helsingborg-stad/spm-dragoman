@@ -12,7 +12,7 @@ let package = Package(
             targets: ["Dragoman"]),
     ],
     dependencies: [
-        .package(name: "TextTranslator", url: "https://github.com/helsingborg-stad/spm-text-translator", from: "0.1.0")
+        .package(name: "TextTranslator", url: "https://github.com/helsingborg-stad/spm-text-translator", from: "0.2.0")
     ],
     targets: [
         .target(

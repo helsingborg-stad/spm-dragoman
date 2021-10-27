@@ -3,6 +3,25 @@ import SwiftUI
 import Combine
 import TextTranslator
 
+/// Queue item of texts to be translated.
+struct QueueItem {
+    /// The texts to be translated
+    var texts:[String]
+    /// The language to translate from
+    var from: LanguageKey
+    /// The languages to translate to
+    var to: Set<LanguageKey>
+    /// Completion subject
+    var subject:PassthroughSubject<Void,Error> = .init()
+    /// Completion publisher
+    var publisher:AnyPublisher<Void,Error>
+    init(_ texts:[String], from:LanguageKey, to: [LanguageKey]) {
+        self.texts = texts
+        self.from = from
+        self.to = Set<LanguageKey>(to)
+        self.publisher = subject.eraseToAnyPublisher()
+    }
+}
 
 /// Dragoman related errors
 public enum DragomanError : Error {
@@ -15,39 +34,10 @@ public enum DragomanError : Error {
 }
 /// Dragoman is a localization and translation manager that uses a local device bundle to store .strings -files
 public class Dragoman: ObservableObject {
-    /// A TranslationTable implementation
-    public struct TranslationTable: TextTransaltionTable {
-        /// The translation database
-        public var db: [LanguageKey: [TranslationKey: TranslatedValue]] = [:]
-        /// Merge self with another table. Any value that exists in the new table will overwrite the current database values
-        /// - Parameter table: table to merge with
-        mutating func merge(with table:TranslationTable) {
-            for (lang,vals) in table.db {
-                for (k,v) in vals {
-                    if db[lang] == nil {
-                        db[lang] = [:]
-                    }
-                    db[lang]?[k] = v
-                }
-            }
-        }
-        /// Remove all provided strings, in all languages, from database
-        /// - Parameter strings: strings to remove
-        mutating func remove(strings:[String]) {
-            var db = db
-            for (lang,dict) in db {
-                var dict = dict
-                for s in strings {
-                    guard let index = dict.index(forKey: s) else {
-                        continue
-                    }
-                    dict.remove(at: index)
-                }
-                db[lang] = dict
-            }
-            self.db = db
-        }
-    }
+    /// Indicates whether or not texts are being translated
+    private var isTranslating:Bool = false
+    /// Used to queue translation service calls and mitigate possible concurrency issues
+    private var translationQueue = [QueueItem]()
     /// Used to identify a lanugage. Can be any string you desire but should be Apple Locale.languageCode compatible
     public typealias LanguageKey = String
     /// Used to decribe a value for a key
@@ -72,8 +62,6 @@ public class Dragoman: ObservableObject {
     /// Triggeres when changes occurs
     private let changedSubject = PassthroughSubject<Void, Never>()
     /// Triggeres when a failure occurs
-    private let failedSubject = PassthroughSubject<Error, Never>()
-    /// Supported locales, must be set on initialization
     public private(set) var supportedLanguages = [LanguageKey]()
     
     /// Indicates whether or not the dragoman translation service and file writes are disabled
@@ -89,8 +77,6 @@ public class Dragoman: ObservableObject {
     
     /// Publisher that triggers whenever a new file is written to disk
     public let changed: AnyPublisher<Void, Never>
-    /// Publisher that triggers whenever an error occurs
-    public let failed: AnyPublisher<Error, Never>
     
     /// Initializes a new
     /// - Parameters:
@@ -112,7 +98,6 @@ public class Dragoman: ObservableObject {
         bundle = Self.languageBundle(bundle: baseBundle, for: language)
         self.translationService = translationService
         self.changed = changedSubject.eraseToAnyPublisher()
-        self.failed = failedSubject.eraseToAnyPublisher()
     }
     /// Load bundle from document directory (if it exists)
     /// - Parameter name: the bundle name, must include .bundle
@@ -187,28 +172,25 @@ public class Dragoman: ObservableObject {
         return languageBundle
     }
     /// Remove all files from current bundle
-    public func clean() {
-        clean(bundle:baseBundle)
+    public func clean() throws {
+        try clean(bundle:baseBundle)
     }
     /// Remove all files from bundle
     /// - Parameter bundle: the bundle to remove
-    private func clean(bundle:Bundle) {
-        do {
-            if FileManager.default.fileExists(atPath: bundle.bundlePath) {
-                try FileManager.default.removeItem(at: bundle.bundleURL)
-            }
-        } catch {
-            failedSubject.send(error)
+    private func clean(bundle:Bundle) throws {
+        if FileManager.default.fileExists(atPath: bundle.bundlePath) {
+            try FileManager.default.removeItem(at: bundle.bundleURL)
         }
     }
     /// Removes all strings in all supported languages related to the specified keys
     /// - Parameter keys: keys to strings that should be removed
-    public func remove(keys:[String]) {
+    public func remove(keys:[String]) throws {
         var table = translations(in: supportedLanguages)
         table.remove(strings: keys)
-        write(table)
+        try write(table)
     }
-    /// Translate texts from a language to a list of languages
+    /// Translate texts from a language to a list of languages.
+    /// Each translation call is passed to a queue. A failed queue item will not cancel the remaining queued items.
     /// - Parameters:
     ///   - texts: the texts to translate, also used as keys to it's translated values
     ///   - from: original language
@@ -218,47 +200,76 @@ public class Dragoman: ObservableObject {
         if disabled {
             return Fail(error: DragomanError.disabled).eraseToAnyPublisher()
         }
-        var to = to ?? supportedLanguages
-        to.removeAll { $0 == from }
-        let subj = PassthroughSubject<Void,Error>()
-        var all = to
-        all.append(from)
-        let table = translations(in: all)
-        guard let translationService = translationService else {
-            return Fail(error: DragomanError.noTranslationService).eraseToAnyPublisher()
+        let to = to ?? supportedLanguages
+        let i = QueueItem(texts, from: from, to: to)
+        self.translationQueue.append(i)
+        DispatchQueue.main.async { [weak self] in
+            self?.runQueue()
         }
+        return i.publisher
+    }
+    /// Runs the ranslationQueue
+    private func runQueue() {
+        if isTranslating {
+            return
+        }
+        guard let i = self.translationQueue.first else {
+            return
+        }
+        isTranslating = true
+        self.translationQueue.removeFirst()
+        if disabled {
+            i.subject.send(completion: .failure(DragomanError.disabled))
+            runQueue()
+            return
+        }
+        guard let translationService = translationService else {
+            i.subject.send(completion: .failure(DragomanError.noTranslationService))
+            runQueue()
+            return
+        }
+        let table = translations(in: Array(i.to))
         var p:AnyCancellable?
-        p = translationService.translate(texts, from: from, to: to, storeIn: table).receive(on: DispatchQueue.main).sink(receiveCompletion: { compl in
+        p = translationService.translate(i.texts, from: i.from, to: Array(i.to), storeIn: table).receive(on: DispatchQueue.main).sink(receiveCompletion: { [weak self] compl in
             switch compl {
-            case .failure(let error): subj.send(completion: .failure(error))
+            case .failure(let error): i.subject.send(completion: .failure(error))
             case .finished: break
             }
+            self?.isTranslating = false
+            self?.runQueue()
         }, receiveValue: { [weak self] table in
-            guard let this = self, let table = table as? TranslationTable else {
+            guard let this = self else {
+                self?.isTranslating = false
+                self?.runQueue()
                 return
             }
-            var curr = this.translations(in: all)
+            var curr = this.translations(in: this.supportedLanguages)
             curr.merge(with: table)
-            self?.write(curr)
-            if let p = p {
-                self?.cancellables.remove(p)
+            do {
+                try this.write(table)
+                i.subject.send()
+            } catch {
+                i.subject.send(completion: .failure(error))
             }
-            subj.send()
+            if let p = p {
+                this.cancellables.remove(p)
+            }
+            this.isTranslating = false
+            this.runQueue()
         })
         if let p = p {
             cancellables.insert(p)
         }
-        return subj.eraseToAnyPublisher()
     }
     /// Reads all translations from disk
     /// - Parameter languages: langauges to include
     /// - Returns: a transaltion table contining all translations and it's keys
-    public func translations(in languages: [LanguageKey]) -> TranslationTable {
-        var t = TranslationTable()
+    public func translations(in languages: [LanguageKey]) -> TextTranslationTable {
+        var t = TextTranslationTable()
         for language in languages {
             if let url = baseBundle.url(forResource: tableName, withExtension: "strings", subdirectory: nil, localization: language), let stringsDict = NSDictionary(contentsOf: url) as? [String: String] {
                 for (key, value) in stringsDict {
-                    t[language, key] = value
+                    t.set(value: value, for: key, in: language)
                 }
             }
         }
@@ -320,35 +331,35 @@ public class Dragoman: ObservableObject {
     }
     /// Write a table to disk
     /// - Parameter translations: the transaltion table to be stored
-    private func write(_ translations: TranslationTable) {
+    private func write(_ translations: TextTranslationTable) throws {
         if disabled {
             return
         }
-        do {
-            let old = baseBundle
-            let new = try Self.createBundle(tableName: tableName, languages: supportedLanguages)
-            for language in translations.db {
-                let lang = language.key
-                let langPath = new.bundleURL.appendingPathComponent("\(lang).lproj", isDirectory: true)
-                if FileManager.default.fileExists(atPath: langPath.path) == false {
-                    try FileManager.default.createDirectory(at: langPath, withIntermediateDirectories: true, attributes: [:])
-                }
-                let sentences = language.value
-                let res = sentences.reduce("", { $0 + "\"\($1.key)\" = \"\($1.value)\";\n" })
-                let filePath = langPath.appendingPathComponent("\(tableName).strings")
-                guard let data = res.data(using: .utf8) else {
-                    throw DragomanError.unableToConvertStringsToData
-                }
-                try data.write(to: filePath)
+        let old = baseBundle
+        let new = try Self.createBundle(tableName: tableName, languages: supportedLanguages)
+        for language in translations.db {
+            let lang = language.key
+            let langPath = new.bundleURL.appendingPathComponent("\(lang).lproj", isDirectory: true)
+            if FileManager.default.fileExists(atPath: langPath.path) == false {
+                try FileManager.default.createDirectory(at: langPath, withIntermediateDirectories: true, attributes: [:])
             }
-            baseBundle = new
-            updateBundles()
-            clean(bundle: old)
-            changedSubject.send()
-        } catch {
-            debugPrint(error)
-            failedSubject.send(error)
+            let sentences = language.value
+            let res = sentences.reduce("", { $0 + "\"\($1.key)\" = \"\($1.value)\";\n" })
+            let filePath = langPath.appendingPathComponent("\(tableName).strings")
+            guard let data = res.data(using: .utf8) else {
+                throw DragomanError.unableToConvertStringsToData
+            }
+            try data.write(to: filePath)
         }
+        baseBundle = new
+        updateBundles()
+        do {
+            try clean(bundle: old)
+        }
+        catch {
+            debugPrint(error)
+        }
+        changedSubject.send()
     }
     public func updateBundles() {
         bundle = Self.languageBundle(bundle: baseBundle, for: language)
