@@ -309,7 +309,7 @@ public class Dragoman: ObservableObject {
     /// - Returns: returns a localized string. if no string is found and the `value` is set to a string, the `value` will be returned. If `value` is nil the `key` will be returned
     public func string(forKey key:String, in language:LanguageKey, value:String? = nil) -> String {
         if language == self.language {
-            return string(forKey: key)
+            return string(forKey: key, value: value)
         }
         let error = "## error no translation \(UUID().uuidString) ##"
         let str = Self.appBundle(for: language).localizedString(forKey: key, value: error, table: nil)
