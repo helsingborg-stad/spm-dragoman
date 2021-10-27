@@ -159,4 +159,21 @@ final class DragomanTests: XCTestCase {
         }.store(in: &cancellables)
         wait(for: [expectation], timeout: 5)
     }
+    func testIsTranslated() {
+        let expectation = XCTestExpectation(description: "testDragoman")
+        let dragoman = Dragoman(translationService: translator, language: "sv", supportedLanguages: ["sv","en"])
+        try? dragoman.clean()
+        dragoman.language = "en"
+        dragoman.translate([firstTest], from: "sv", to: ["en"]).sink { compl in
+            if case let .failure(error) = compl {
+                debugPrint(error)
+                XCTFail(error.localizedDescription)
+            }
+        } receiveValue: {
+            XCTAssert(dragoman.isTranslated(firstTest, in: ["en"]))
+            XCTAssertFalse(dragoman.isTranslated(secondTest, in: ["en"]))
+            expectation.fulfill()
+        }.store(in: &cancellables)
+        wait(for: [expectation], timeout: 5)
+    }
 }
