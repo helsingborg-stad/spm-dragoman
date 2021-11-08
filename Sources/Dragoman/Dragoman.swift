@@ -340,9 +340,6 @@ public class Dragoman: ObservableObject {
         for language in translations.db {
             let lang = language.key
             let langPath = new.bundleURL.appendingPathComponent("\(lang).lproj", isDirectory: true)
-            if FileManager.default.fileExists(atPath: langPath.path) == false {
-                try FileManager.default.createDirectory(at: langPath, withIntermediateDirectories: true, attributes: [:])
-            }
             let sentences = language.value
             let res = sentences.reduce("", { $0 + "\"\($1.key)\" = \"\($1.value)\";\n" })
             let filePath = langPath.appendingPathComponent("\(tableName).strings")
