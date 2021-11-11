@@ -344,6 +344,10 @@ public class Dragoman: ObservableObject {
         let new = try Self.createBundle(tableName: tableName, languages: supportedLanguages)
         for language in translations.db {
             let lang = language.key
+            if !self.supportedLanguages.contains(lang) {
+                debugPrint("language \(lang) not supported, ignoring")
+                continue
+            }
             let langPath = new.bundleURL.appendingPathComponent("\(lang).lproj", isDirectory: true)
             let sentences = language.value
             let res = sentences.reduce("", { $0 + "\"\($1.key)\" = \"\($1.value)\";\n" })
