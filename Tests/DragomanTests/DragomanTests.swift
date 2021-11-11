@@ -170,8 +170,10 @@ final class DragomanTests: XCTestCase {
                 XCTFail(error.localizedDescription)
             }
         } receiveValue: {
-            XCTAssert(dragoman.isTranslated(firstTest, in: ["en"]))
+            XCTAssertTrue(dragoman.isTranslated(firstTest, in: ["en"]))
             XCTAssertFalse(dragoman.isTranslated(secondTest, in: ["en"]))
+            XCTAssertFalse(dragoman.isTranslated(firstTest, in: ["pt"]))
+            XCTAssertFalse(dragoman.isTranslated(firstTest, in: ["pt","en"]))
             expectation.fulfill()
         }.store(in: &cancellables)
         wait(for: [expectation], timeout: 5)

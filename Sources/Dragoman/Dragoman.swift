@@ -284,7 +284,12 @@ public class Dragoman: ObservableObject {
         let lang = languages ?? supportedLanguages
         let error = "## error no translation \(UUID().uuidString) ##"
         for l in lang {
-            if string(forKey: text, in: l, value: error) == error {
+            let str = Self.appBundle(for: language).localizedString(forKey: text, value: error, table: nil)
+            if str == error, let b = Self.bundleByLanguageCode(bundle: baseBundle, for: l) {
+                if b.localizedString(forKey: text, value: error, table: tableName) == error {
+                    return false
+                }
+            } else {
                 return false
             }
         }
