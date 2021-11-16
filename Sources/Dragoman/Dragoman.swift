@@ -3,6 +3,7 @@ import SwiftUI
 import Combine
 import TextTranslator
 
+let defaultKeyMame = "DragomanCurrentBundleName"
 /// Queue item of texts to be translated.
 struct QueueItem {
     /// The texts to be translated
@@ -48,7 +49,7 @@ public class Dragoman: ObservableObject {
     /// The base bundle where all .proj folder are stored
     private var baseBundle: Bundle {
         didSet {
-            UserDefaults.standard.set(baseBundle.bundleURL.lastPathComponent, forKey: "DragomanCurrentBundleName")
+            UserDefaults.standard.set(baseBundle.bundleURL.lastPathComponent, forKey: defaultKeyMame)
         }
     }
     /// The current app bundle, ie Bundle.main in your application
@@ -86,7 +87,7 @@ public class Dragoman: ObservableObject {
     public init(translationService: TextTranslationService? = nil, language:LanguageKey, supportedLanguages:[LanguageKey]) {
         self.language = language
         self.supportedLanguages = supportedLanguages
-        if let name = UserDefaults.standard.string(forKey: "DragomanCurrentBundleName"), let b = Self.getBundle(for: name) {
+        if let name = UserDefaults.standard.string(forKey: defaultKeyMame), let b = Self.getBundle(for: name) {
             baseBundle = b
         } else if let bundle = try? Self.createBundle(tableName: tableName, languages: supportedLanguages) {
             baseBundle = bundle
