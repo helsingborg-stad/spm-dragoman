@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import Combine
 import TextTranslator
+import Shout
 
 let defaultKeyMame = "DragomanCurrentBundleName"
 /// Queue item of texts to be translated.
@@ -75,7 +76,8 @@ public class Dragoman: ObservableObject {
             updateBundles()
         }
     }
-    
+    /// Logging service used to publish events to logs or services
+    public var logger:Shout = Shout("Dragoman")
     /// Publisher that triggers whenever a new file is written to disk
     public let changed: AnyPublisher<Void, Never>
     
@@ -346,7 +348,7 @@ public class Dragoman: ObservableObject {
         for language in translations.db {
             let lang = language.key
             if !self.supportedLanguages.contains(lang) {
-                debugPrint("language \(lang) not supported, ignoring")
+                logger.warning("language \(lang) not supported, ignoring")
                 continue
             }
             let langPath = new.bundleURL.appendingPathComponent("\(lang).lproj", isDirectory: true)
@@ -364,10 +366,11 @@ public class Dragoman: ObservableObject {
             try clean(bundle: old)
         }
         catch {
-            debugPrint(error)
+            logger.error(error)
         }
         changedSubject.send()
     }
+    /// Updates `bundle` and `appBundle` using the latest `language` parameter.
     public func updateBundles() {
         bundle = Self.languageBundle(bundle: baseBundle, for: language)
         appBundle = Self.appBundle(for: language)
