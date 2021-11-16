@@ -353,7 +353,7 @@ public class Dragoman: ObservableObject {
             }
             let langPath = new.bundleURL.appendingPathComponent("\(lang).lproj", isDirectory: true)
             let sentences = language.value
-            let res = sentences.reduce("", { $0 + "\"\($1.key)\" = \"\($1.value)\";\n" })
+            let res = sentences.reduce("", { $0 + "\"\(escape($1.key))\" = \"\(escape($1.value))\";\n" })
             let filePath = langPath.appendingPathComponent("\(tableName).strings")
             guard let data = res.data(using: .utf8) else {
                 throw DragomanError.unableToConvertStringsToData
@@ -376,4 +376,14 @@ public class Dragoman: ObservableObject {
         appBundle = Self.appBundle(for: language)
         changedSubject.send()
     }
+}
+
+
+/// Escapes double-quotes in string.
+/// The function first removes all quotes and then adds them again to make sure the string cannot be escaped twice.
+/// - Parameter string: the string to escape
+/// - Returns: escaped string.
+func escape(_ string:String) -> String {
+    let str = string.replacingOccurrences(of: #"\""#, with: #"""#)
+    return str.replacingOccurrences(of: "\"", with: "\\\"")
 }
