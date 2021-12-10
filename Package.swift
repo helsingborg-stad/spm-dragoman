@@ -12,8 +12,8 @@ let package = Package(
             targets: ["Dragoman"]),
     ],
     dependencies: [
-        .package(name: "Shout", url: "https://github.com/helsingborg-stad/spm-shout.git", from: "0.1.2"),
-        .package(name: "TextTranslator", url: "https://github.com/helsingborg-stad/spm-text-translator", from: "0.2.0")
+        .package(name: "Shout", url: "https://github.com/helsingborg-stad/spm-shout.git", from: "0.1.3"),
+        .package(name: "TextTranslator", url: "https://github.com/helsingborg-stad/spm-text-translator", from: "0.2.1")
     ],
     targets: [
         .target(
