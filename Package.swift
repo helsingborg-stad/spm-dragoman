@@ -18,7 +18,7 @@ let package = Package(
     targets: [
         .target(
             name: "Dragoman",
-            dependencies: ["TextTranslator"]),
+            dependencies: ["TextTranslator","Shout"]),
         .testTarget(
             name: "DragomanTests",
             dependencies: ["Dragoman"]),
