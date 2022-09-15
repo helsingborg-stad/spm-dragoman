@@ -1,4 +1,8 @@
 # Dragoman
+## DEPRECATED
+Package will not recieve any updates, please use the Dragoman library in https://github.com/helsingborg-stad/spm-daisy instead.
+
+## About
 
 Dragoman is a localization and translation manager. It uses the built in support for .strings and the Bundle object in order to supply an app with translations
 
